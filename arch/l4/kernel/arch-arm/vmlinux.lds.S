@@ -47,6 +47,12 @@ jiffies = jiffies_64;
 jiffies = jiffies_64 + 4;
 #endif
 
+PHDRS
+{
+	ro   PT_LOAD;
+	rw   PT_LOAD;
+}
+
 SECTIONS
 {
 	/*
@@ -82,14 +88,32 @@ SECTIONS
 	}
 
 #ifdef CONFIG_XIP_KERNEL
-	. = XIP_VIRT_ADDR(CONFIG_XIP_PHYS_ADDR);
+	. = XIP_VIRT_ADDR(CONFIG_XIP_PHYS_ADDR) - 4096;
 #else
-	. = PAGE_OFFSET + TEXT_OFFSET;
+	. = PAGE_OFFSET + TEXT_OFFSET - 4096;
 #endif
+
+	.parent : {
+		/*
+		 * Leave space for parent capability parameters at start of data
+		 * section. The protection domain creator is reponsible for storing
+		 * sane values here.
+		 */
+		_parent_cap = .;
+		_parent_cap_thread_id = .;
+		LONG(0xffffffff);
+		_parent_cap_local_name = .;
+		LONG(0xffffffff);
+	} : rw
+
+	. = ALIGN(4096);
+
 	.head.text : {
+		_prog_img_beg = .;
 		_text = .;
 		HEAD_TEXT
 	}
+
 	.text : {			/* Real text segment		*/
 		_stext = .;		/* Text and read-only data	*/
 			__exception_text_start = .;
@@ -104,6 +128,7 @@ SECTIONS
 #ifdef CONFIG_MMU
 			*(.fixup)
 #endif
+			*(.text.*) /* put all Genode .text entries in here */
 			*(.gnu.warning)
 			*(.glue_7)
 			*(.glue_7t)
@@ -135,6 +160,42 @@ SECTIONS
 		__stop_unwind_tab = .;
 	}
 #endif
+
+	/*
+	 * When building L4Linux for Genode, the 'CONFIG_ARM_UNWIND' option is
+	 * disabled to avoid conflicts between unwinding-related symbols provided
+	 * by the Linux kernel and the C++ compiler's libsupc++. Hence, the linker
+	 * script section above is not used. Instead, the '.ARM.exidx' entries are
+	 * handled as follows (taken from the Genode linker script.
+	 */
+	/* .ARM.exidx is sorted, so has to go in its own output section */
+	__exidx_start = .;
+	.ARM.exidx : {
+		*(.ARM.exidx* .gnu.linkonce.armexidx.*)
+	}
+	__exidx_end = .;
+
+	.ARM.extab : {
+		*(.ARM.extab*)
+	} : rw
+
+	/* exception frames for C++ */
+	.eh_frame : {
+		__eh_frame_start__ = .;
+		KEEP (*(.eh_frame))
+		LONG(0)
+	} : rw
+
+	.init_array : {
+		__init_array_start = .;
+		_ctors_start = .;
+		KEEP (*(SORT(.init_array.*)))
+		KEEP (*(.init_array))
+		__init_array_end = .;
+		_ctors_end = .;
+		_dtors_start = .;
+		_dtors_end = .;
+	}
 
 	_etext = .;			/* End of text and rodata section */
 
@@ -240,8 +301,10 @@ SECTIONS
 		DATA_DATA
 		CONSTRUCTORS
 
+		*(.data.*) /* put all Genode .data entries in here */
+
 		_edata = .;
-	}
+	} : rw
 	_edata_loc = __data_loc + SIZEOF(.data);
 
 #ifdef CONFIG_HAVE_TCM
@@ -303,10 +366,20 @@ SECTIONS
 
 	NOTES
 
-	BSS_SECTION(0, 0, 0)
+	/* BSS */
+	. = ALIGN(PAGE_SIZE);
+	.bss : AT(ADDR(.bss) - LOAD_OFFSET) {
+		__bss_start = .;
+		*(.bss..page_aligned)
+		*(.bss)
+		*(.bss.*) /* put all Genode .bss entries in here */
+		. = ALIGN(4);
+		__bss_stop = .;
+	}
 
 	/* L4: Align to full superpage */
 	. = ALIGN(1048576);
+	_prog_img_end = .;
 	_end = .;
 
 	STABS_DEBUG

@@ -18,6 +18,9 @@
 #include <l4/sys/task.h>
 #include <l4/sys/kdebug.h>
 #include <l4/re/consts.h>
+#include <l4/log/log.h>
+
+extern void l4lx_memory_map_physical_page(unsigned long address);
 
 static void l4x_flush_page(struct mm_struct *mm,
                            unsigned long address,
@@ -45,6 +48,12 @@ static void l4x_flush_page(struct mm_struct *mm,
 		}
 	} else
 #endif
+#ifdef NOT_GENODE
+		/*
+		 * Device memory is currently not supported on Genode. If this changes,
+		 * a check for overlapping 'low memory' and 'device memory' regions
+		 * must get added.
+		 */
 		if (address > 0x80000000UL) {
 		unsigned long remap;
 		remap = find_ioremap_entry(address);
@@ -57,8 +66,10 @@ static void l4x_flush_page(struct mm_struct *mm,
 			return;
 
 		address = remap;
+	} else
+#endif /* NOT_GENODE */
 
-	} else if ((address & PAGE_MASK) == 0)
+	if ((address & PAGE_MASK) == 0)
 		address = PAGE0_PAGE_ADDRESS;
 
 #if 0
@@ -77,7 +88,7 @@ static void l4x_flush_page(struct mm_struct *mm,
 	if (mm && !l4_is_invalid_cap(mm->context.task)) {
 		L4XV_V(f);
 		if (!mm->context.task)
-			l4x_printf("%s: Ups, task == 0\n", __func__);
+			LOG_printf("%s: Ups, task == 0\n", __func__);
 		/* Direct flush in the child, use virtual address in the
 		 * child address space */
 		L4XV_L(f);
@@ -93,10 +104,11 @@ static void l4x_flush_page(struct mm_struct *mm,
 		tag = l4_task_unmap(L4RE_THIS_TASK_CAP,
 			            l4_fpage(address & PAGE_MASK, size, flush_rights),
 			            L4_FP_OTHER_SPACES);
+		l4lx_memory_map_physical_page(address);
 		L4XV_U(f);
 	}
 	if (l4_error(tag))
-		l4x_printf("l4_task_unmap error %ld\n", l4_error(tag));
+		LOG_printf("l4_task_unmap error %ld\n", l4_error(tag));
 }
 
 #ifdef ARCH_arm

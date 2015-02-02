@@ -42,6 +42,7 @@
 
 #include <asm/api/api.h>
 
+#define VMALLOC_OFFSET  (8*1024*1024)
 #define VMALLOC_SIZE    128
 
 #define VMALLOC_START   l4x_vmalloc_memory_start

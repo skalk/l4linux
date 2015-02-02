@@ -22,10 +22,12 @@
 #include <linux/serial.h>
 
 #include <l4/sys/vcon.h>
+#include <l4/sys/kdebug.h>
 #include <l4/sys/factory.h>
 #include <l4/sys/icu.h>
 #include <l4/re/c/namespace.h>
 #include <l4/re/c/util/cap.h>
+#include <l4/log/log.h>
 #include <asm/generic/setup.h>
 #include <asm/generic/cap_alloc.h>
 #include <asm/generic/util.h>
@@ -118,7 +120,7 @@ static void l4ser_tx_chars(struct uart_port *port)
 	int c;
 
 	if (port->x_char) {
-		L4XV_FN_v(l4_vcon_write(l4port->vcon_cap, &port->x_char, 1));
+		L4XV_FN_v(l4_vcon_write(LOG_printf("%c", port->x_char));
 		port->icount.tx++;
 		port->x_char = 0;
 		return;
@@ -128,7 +130,12 @@ static void l4ser_tx_chars(struct uart_port *port)
 		c = CIRC_CNT_TO_END(xmit->head, xmit->tail, UART_XMIT_SIZE);
 		if (c > L4_VCON_WRITE_SIZE)
 			c = L4_VCON_WRITE_SIZE;
-		L4XV_FN_v(l4_vcon_write(l4port->vcon_cap, &xmit->buf[xmit->tail], c));
+ 		L4XV_L(f);
+		char *ptr = (char*)&xmit->buf[xmit->tail], old = ptr[c];
+		ptr[c] = 0;
+		LOG_printf("%s", ptr);
+		ptr[c] = old;
+ 		L4XV_U(f);
 		xmit->tail = (xmit->tail + c) & (UART_XMIT_SIZE - 1);
 		port->icount.tx += c;
 	}
@@ -247,7 +254,7 @@ static int __init l4ser_init_port(int num, const char *name)
 	if (l4ser_port[num].inited)
 		return 0;
 	l4ser_port[num].inited = 1;
-
+#if 0
 	if ((r = l4x_re_resolve_name(name, &l4ser_port[num].vcon_cap))) {
 		if (num == 0)
 			l4ser_port[num].vcon_cap = l4re_env()->log;
@@ -285,7 +292,7 @@ static int __init l4ser_init_port(int num, const char *name)
 	vcon_attr.i_flags = 0;
 	vcon_attr.o_flags = 0;
 	vcon_attr.l_flags = 0;
-	L4XV_FN_v(l4_vcon_set_attr(l4ser_port[num].vcon_cap, &vcon_attr));
+//	L4XV_FN_v(l4_vcon_set_attr(l4ser_port[num].vcon_cap, &vcon_attr));
 
 	l4ser_port[num].port.uartclk   = 3686400;
 	l4ser_port[num].port.ops       = &l4ser_pops;
@@ -326,7 +333,13 @@ l4ser_console_write(struct console *co, const char *s, unsigned int count)
 		unsigned c = count;
 		if (c > L4_VCON_WRITE_SIZE)
 			c = L4_VCON_WRITE_SIZE;
-		L4XV_FN_v(l4_vcon_write(l4ser_port[co->index].vcon_cap, s, c));
+ 		L4XV_L(f);
+		char *ptr = (char*)s, old = ptr[c];
+		ptr[c] = 0;
+		LOG_printf("%s", ptr);
+		ptr[c] = old;
+
+ 		L4XV_U(f);
 		count -= c;
 	} while (count);
 }
